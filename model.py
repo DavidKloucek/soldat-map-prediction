@@ -1,5 +1,7 @@
+from pathlib import Path
 from collections import Counter
 from datetime import datetime, timedelta
+import hashlib
 from typing import Iterable
 import numpy as np
 from torch.utils.data import Dataset
@@ -25,6 +27,10 @@ def format_td(td: timedelta):
     hours, rem = divmod(rem, 3600)
     minutes, seconds = divmod(rem, 60)
     return f"{days}d {hours}h {minutes}m {seconds}s"
+
+
+def create_model_file_path(server_name: str) -> str:
+    return str(Path("models") / Path(f"soldat_{hashlib.md5(server_name.encode()).hexdigest()}.pt"))
 
 
 def get_time_gap(dates: Iterable[datetime], ts: timedelta) -> tuple[bool, list[timedelta]]:
@@ -62,9 +68,6 @@ class MapSequenceDataset(Dataset):
             self.samples.append((seq, target))
         print(f"Skipped sequences: {skipped_count}")
 
-    def __len__(self):
-        return len(self.samples)
-
     def __getitem__(self, idx):
         seq, target = self.samples[idx]
         return {
@@ -72,10 +75,18 @@ class MapSequenceDataset(Dataset):
             "target": torch.tensor(target, dtype=torch.long)
         }
 
+    def __len__(self):
+        return len(self.samples)
+
+
+class SequenceLengthException(ValueError):
+    pass
+
 
 class MapPredictor(nn.Module):
-    def __init__(self, map_encoder: LabelEncoder, embedding_dim: int, hidden_dim: int):
+    def __init__(self, max_sequence_length: int, map_encoder: LabelEncoder, embedding_dim: int, hidden_dim: int):
         super().__init__()
+        self.max_sequence_length = max_sequence_length
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.map_encoder = map_encoder
@@ -93,6 +104,9 @@ class MapPredictor(nn.Module):
         return logits
 
     def predict(self, seq: list[str], topk: int) -> tuple[list[str], list[float]]:
+        if len(seq) > self.max_sequence_length:
+            raise SequenceLengthException(
+                f"Sequence length ({len(seq)}) exceeds max_sequence_length ({self.max_sequence_length}); please provide at most {self.max_sequence_length} items.")
         self.eval()
         map_sequence = self.map_encoder.transform(seq)
         sequence_length = len(map_sequence)
@@ -114,6 +128,7 @@ class MapPredictor(nn.Module):
         return {
             "embedding_dim": self.embedding_dim,
             "hidden_dim": self.hidden_dim,
+            "max_sequence_length": self.max_sequence_length,
         }
 
     def get_device(self):

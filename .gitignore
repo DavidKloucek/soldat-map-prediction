@@ -1,0 +1,14 @@
+.idea/
+.vscode/*
+!.vscode/tasks.json
+.DS_Store
+
+.venv/
+.env
+
+__pycache__/
+*.pyc
+.mypy_cache/
+
+soldat.csv
+models/
