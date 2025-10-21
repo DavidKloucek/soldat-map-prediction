@@ -1,4 +1,5 @@
-from model import SequenceLengthException, create_model_file_path, load_model
+from helpers import create_model_file_path
+from model import SequenceLengthException, load_model
 
 print("\n\n", "█" * 30, "\n\n")
 
@@ -26,7 +27,6 @@ def predict(input: list[str], target: str):
         print(f"{'SUCCEED' if success else 'FAILED'}")
         # end = time.time()
         # print(f"\nInference time: {end-start:.2f}s\n")
-        print()
     except SequenceLengthException as e:
         print(e)
 
@@ -35,6 +35,7 @@ predict(['ctf_Kampf'], 'ctf_Laos')
 predict(['ctf_Kampf', 'ctf_Laos'], 'ctf_Maya')
 predict(['ctf_Division', 'ctf_Equinox'], 'ctf_Guardian')
 predict(['ctf_Guardian', 'ctf_Kampf'], 'ctf_Laos')
-predict(['ctf_Kampf', 'ctf_Laos'], 'ctf_Maya')
 predict(['ctf_Equinox', 'ctf_Guardian', 'ctf_Kampf'], 'ctf_Laos')
 predict(['ctf_Division', 'ctf_Equinox', 'ctf_Guardian', 'ctf_Kampf'], 'ctf_Laos')
+predict(['ctf_Cobra', 'ctf_Division', 'ctf_Equinox',
+        'ctf_Guardian', 'ctf_Kampf'], 'ctf_Laos')

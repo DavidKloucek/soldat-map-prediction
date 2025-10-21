@@ -3,11 +3,12 @@ import os
 import datetime
 import json
 import csv
+import httpx
 from time import sleep
 from pync import Notifier
 from rich import print
-import requests
-from model import MapPredictor, create_model_file_path, load_model
+from model import MapPredictor, load_model
+from helpers import create_model_file_path
 
 print("\n\n", "█" * 30, "\n\n")
 
@@ -30,10 +31,12 @@ watched_servers: list[str] = [
     '=AUS7RAL|12 EuroShots #2',
     '[CTF] Oneshot Europe'
 ]
-log_changes_enabled = False
+log_changes = False
 min_players = 0
-sequence_length = 2
-
+min_sequence_length = 1
+max_sequence_length = 8
+notify_next = True
+notify_current = True
 
 map_history: dict = {}
 
@@ -49,15 +52,20 @@ def get_history(server_name: str):
     return list(map_history.get(server_name, []))
 
 
-models: dict[str, MapPredictor] = {}
+models: dict[str, MapPredictor | None] = {}
 
 
-def get_model(server_name: str) -> MapPredictor:
-    fn = create_model_file_path(server_name)
-    if fn in models:
-        return models[fn]
-    models[fn] = load_model(path=fn, device="cpu")
-    return models[fn]
+def get_model(server_name: str) -> MapPredictor | None:
+    try:
+        if server_name in models:
+            return models[server_name]
+        fn = create_model_file_path(server_name)
+        models[server_name] = load_model(path=fn, device="cpu")
+        return models[server_name]
+    except FileNotFoundError as e:
+        print(e)
+        models[server_name] = None
+    return None
 
 
 def is_watched_map(name: str):
@@ -69,8 +77,8 @@ csv_path = os.path.join(os.path.dirname(__file__), "soldat.csv")
 print(f"CSV path: {csv_path}")
 
 while True:
-    req = requests.get("https://api.soldat.pl/v0/servers?version=1.7.1")
-    data = json.loads(req.content)
+    req = httpx.get("https://api.soldat.pl/v0/servers?version=1.7.1")
+    data = req.json()
     players_total = 0
 
     for item in data['Servers']:
@@ -85,7 +93,7 @@ while True:
         is_watched_server = any(x.lower() in server_name.lower()
                                 for x in watched_servers)
 
-        if is_watched_server and log_changes_enabled:
+        if is_watched_server and log_changes:
             with open(csv_path, mode="a+", encoding="utf-8") as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=[
                                         'date', "ip", "port", 'server_name', 'map_name', 'players'], delimiter=";")
@@ -101,36 +109,30 @@ while True:
                 })
 
         if is_watched_server:
-            add_map(server_name, map_name, sequence_length)
+            add_map(server_name, map_name, max_sequence_length)
 
         if players >= min_players and is_watched_server:
-            print(f"{server_name} | {players} | {item['IP']}:{item['Port']}")
+            print(f"{server_name} | {map_name} | {players} | {item['IP']}:{item['Port']}")
 
             map_text = []
 
-            if is_watched_map(map_name):
+            if notify_current and is_watched_map(map_name):
                 map_text.append(f"Current: {map_name}")
 
-            model = get_model(server_name)
-            if model and len(get_history(server_name)) == sequence_length:
-                print("get_history(server_name),", get_history(server_name),)
-                pred_map, pred_perc = model.predict(
-                    get_history(server_name), 2)
-                print(pred_map, pred_perc)
-                if len(pred_perc) > 0 and pred_perc[0] >= 0.7 and is_watched_map(pred_map[0]):
-                    map_text.append(
-                        f"Next: {pred_map[0]} ({round(pred_perc[0]*100)}%)")
+            if notify_next:
+                model = get_model(server_name)
+                if model and len(get_history(server_name)) >= min_sequence_length:
+                    pred_map, pred_perc = model.predict(get_history(server_name), 2)
+                    if len(pred_perc) > 0 and pred_perc[0] >= 0.7 and is_watched_map(pred_map[0]):
+                        map_text.append(f"Next: {pred_map[0]} ({round(pred_perc[0]*100)}%)")
 
             if len(map_text) > 0:
-                print("********************")
-                print("\n".join(map_text))
                 Notifier.notify(
                     "\n".join(map_text),
                     title=f"{server_name}",
                     subtitle=f"Players: {players} / {item['MaxPlayers']}"
                 )
 
-    print(
-        f"Refresh {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, found {len(data['Servers'])} servers, {players_total} players")
+    print(f"Refresh at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, {len(data['Servers'])} servers, {players_total} players")
 
     sleep(60)
